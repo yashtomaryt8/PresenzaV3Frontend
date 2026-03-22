@@ -1,6 +1,6 @@
 import React, { useRef, useState, useCallback } from 'react';
 import Webcam from 'react-webcam';
-import { Button, Card, CardHeader, CardTitle, CardBody, Input, Badge, Alert, Spinner } from './ui';
+import { Button, Card, CardHeader, CardTitle, CardBody, Input, Badge, Spinner } from './ui';
 import { api } from '../utils/api';
 import { Camera, Upload, FlipHorizontal2, Eye, EyeOff, UserCheck, AlertTriangle, Check, Info } from 'lucide-react';
 
