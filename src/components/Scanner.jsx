@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import Webcam from 'react-webcam';
-import { Button, Badge, Toggle, Card, Alert, cn } from './ui';
+import { Button, Badge, Toggle, Card, cn } from './ui';
 import { api } from '../utils/api';
 import { Play, Pause, FlipHorizontal2, Trash2, AlertTriangle, LogIn, LogOut, Hash } from 'lucide-react';
 
