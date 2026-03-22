@@ -14,7 +14,6 @@ import {
   WifiOff,
   ChevronRight,
   Activity,
-  Clock,
 } from 'lucide-react';
 
 // ── Nav structure with Lucide icons ───────────────────────────────────────────
