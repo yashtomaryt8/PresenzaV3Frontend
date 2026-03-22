@@ -14,9 +14,9 @@ import {
   WifiOff,
   ChevronRight,
   Activity,
+  X,
 } from 'lucide-react';
 
-// ── Nav structure with Lucide icons ───────────────────────────────────────────
 const NAV_SECTIONS = [
   {
     label: 'Main',
@@ -41,7 +41,6 @@ const NAV_SECTIONS = [
   },
 ];
 
-// ── Nav item ──────────────────────────────────────────────────────────────────
 function NavItem({ item, isActive, onClick }) {
   const Icon = item.icon;
   return (
@@ -56,49 +55,54 @@ function NavItem({ item, isActive, onClick }) {
       )}
       style={{ width: 'calc(100% - 8px)' }}
     >
-      <Icon
-        size={15}
-        className={cn(
-          'flex-shrink-0 transition-opacity',
-          isActive ? 'opacity-100' : 'opacity-60 group-hover:opacity-80'
-        )}
-      />
+      <Icon size={15} className={cn('flex-shrink-0 transition-opacity',
+        isActive ? 'opacity-100' : 'opacity-60 group-hover:opacity-80')} />
       <span className="flex-1 text-left truncate">{item.label}</span>
-      {isActive && (
-        <span className="w-1.5 h-1.5 rounded-full bg-foreground/60 flex-shrink-0" />
-      )}
+      {isActive && <span className="w-1.5 h-1.5 rounded-full bg-foreground/60 flex-shrink-0" />}
     </button>
   );
 }
 
-// ── Status dot ────────────────────────────────────────────────────────────────
 function StatusDot({ online }) {
   return (
-    <span
-      className={cn(
-        'inline-block w-2 h-2 rounded-full flex-shrink-0',
-        online
-          ? 'bg-green-500 shadow-[0_0_0_2px_rgba(34,197,94,0.25)] animate-pulse'
-          : 'bg-red-500'
-      )}
-    />
+    <span className={cn(
+      'inline-block w-2 h-2 rounded-full flex-shrink-0',
+      online
+        ? 'bg-green-500 shadow-[0_0_0_2px_rgba(34,197,94,0.25)] animate-pulse'
+        : 'bg-red-500'
+    )} />
   );
 }
 
-// ── Sidebar ───────────────────────────────────────────────────────────────────
-export default function Sidebar({ tab, setTab, health, onSearch }) {
+// IMPORTANT: This component renders as a plain flex column.
+// The .sidebar CSS class (which provides width, background, position on mobile)
+// lives on the WRAPPER div in App.jsx — NOT here.
+// Putting .sidebar on this <aside> caused a double-class bug on mobile:
+// the CSS transform:translateX(-100%) applied twice, hiding content inside an
+// already-visible fixed container → white screen.
+export default function Sidebar({ tab, setTab, health, onSearch, onClose }) {
   const isOnline  = health?.ok === true;
   const userCount = health?.users ?? '—';
 
   return (
-    <aside className="sidebar flex flex-col h-full">
+    <aside className="flex flex-col h-full w-full overflow-hidden bg-background border-r border-border">
 
-      {/* ── Logo ────────────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 h-14 px-4 border-b border-border flex-shrink-0">
+      {/* Logo + mobile close button */}
+      <div className="flex items-center justify-between h-14 px-4 border-b border-border flex-shrink-0">
         <Logo />
+        {/* Close button — only visible on mobile when sidebar is open */}
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="lg:hidden flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:bg-muted transition-colors"
+            aria-label="Close menu"
+          >
+            <X size={15} />
+          </button>
+        )}
       </div>
 
-      {/* ── Search ──────────────────────────────────────────────────────────── */}
+      {/* Search */}
       <div className="px-3 py-2 border-b border-border flex-shrink-0">
         <button
           onClick={onSearch}
@@ -106,25 +110,20 @@ export default function Sidebar({ tab, setTab, health, onSearch }) {
         >
           <Search size={12} className="flex-shrink-0" />
           <span className="flex-1 text-left">Search…</span>
-          <kbd className="text-[9px] bg-background border border-border rounded px-1 py-0.5 font-mono opacity-60">
-            ⌘K
-          </kbd>
+          <kbd className="text-[9px] bg-background border border-border rounded px-1 py-0.5 font-mono opacity-60">⌘K</kbd>
         </button>
       </div>
 
-      {/* ── System status strip ─────────────────────────────────────────────── */}
+      {/* System status strip */}
       <div className="px-4 py-2 border-b border-border flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            {isOnline ? (
-              <Wifi size={11} className="text-green-500" />
-            ) : (
-              <WifiOff size={11} className="text-red-500" />
-            )}
-            <span className={cn(
-              'text-[10px] font-semibold',
-              isOnline ? 'text-green-600 dark:text-green-400' : 'text-red-500'
-            )}>
+            {isOnline
+              ? <Wifi size={11} className="text-green-500" />
+              : <WifiOff size={11} className="text-red-500" />
+            }
+            <span className={cn('text-[10px] font-semibold',
+              isOnline ? 'text-green-600 dark:text-green-400' : 'text-red-500')}>
               {isOnline ? 'Online' : 'Offline'}
             </span>
           </div>
@@ -135,7 +134,7 @@ export default function Sidebar({ tab, setTab, health, onSearch }) {
         </div>
       </div>
 
-      {/* ── Nav ──────────────────────────────────────────────────────────────── */}
+      {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-2">
         {NAV_SECTIONS.map(section => (
           <div key={section.label} className="mb-1">
@@ -154,28 +153,24 @@ export default function Sidebar({ tab, setTab, health, onSearch }) {
         ))}
       </nav>
 
-      {/* ── HF Space info ────────────────────────────────────────────────────── */}
+      {/* HF Space info pill */}
       {isOnline && health?.hf && (
         <div className="mx-3 mb-2 px-3 py-2 rounded-lg bg-muted/60 border border-border flex-shrink-0">
           <div className="flex items-center gap-1.5 mb-1">
             <Activity size={10} className="text-blue-500 flex-shrink-0" />
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-              HF Space
-            </span>
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">HF Space</span>
           </div>
           <p className="text-[10px] text-muted-foreground truncate leading-tight">
             {health.hf.replace('https://', '')}
           </p>
           <div className="flex items-center gap-1 mt-1">
             <StatusDot online />
-            <span className="text-[9px] text-green-600 dark:text-green-400">
-              buffalo_l active
-            </span>
+            <span className="text-[9px] text-green-600 dark:text-green-400">buffalo_l active</span>
           </div>
         </div>
       )}
 
-      {/* ── Footer ───────────────────────────────────────────────────────────── */}
+      {/* Footer */}
       <div className="border-t border-border p-3 flex-shrink-0">
         <div className="flex items-center gap-2.5 px-1">
           <StatusDot online={isOnline} />
@@ -184,7 +179,7 @@ export default function Sidebar({ tab, setTab, health, onSearch }) {
               {isOnline ? 'System Online' : 'System Offline'}
             </p>
             <p className="text-[10px] text-muted-foreground truncate">
-              {isOnline ? `Face recognition ready` : 'Check Railway & HF Space'}
+              {isOnline ? 'Face recognition ready' : 'Check Railway & HF Space'}
             </p>
           </div>
           <button
