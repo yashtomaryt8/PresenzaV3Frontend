@@ -1,18 +1,21 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import Webcam from 'react-webcam';
-import { Button, Badge, Toggle, Card, cn } from './ui';
+import { Button, Badge, Toggle, Card, Alert, cn } from './ui';
 import { api } from '../utils/api';
-import {
-  Play,
-  Pause,
-  FlipHorizontal2,
-  Trash2,
-  AlertTriangle,
-  LogIn,
-  LogOut,
-  Hash,
-} from 'lucide-react';
+import { Play, Pause, FlipHorizontal2, Trash2, AlertTriangle, LogIn, LogOut, Hash } from 'lucide-react';
 
+// ── THE KEY FIX ───────────────────────────────────────────────────────────────
+// Old code: setInterval fires every 400ms unconditionally.
+// If HF takes 1500ms, you accumulate 3-4 queued requests per device.
+// With 2 devices that's 6-8 blocked Django threads = thread pool full = 499.
+//
+// Fix: scanInProgress ref acts as a mutex. If a scan is already awaiting
+// the HF response, skip this interval tick entirely. This means the
+// effective scan rate adapts to HF latency: if HF takes 1500ms, you
+// naturally get one scan per ~1500ms instead of a queue of 4.
+//
+// The interval itself stays at 400ms — that's the POLLING rate, not the
+// REQUEST rate. It just checks "can I fire?" not "fire now regardless".
 const SCAN_MS = 400;
 
 function ordinal(n) {
@@ -22,11 +25,13 @@ function ordinal(n) {
 }
 
 export default function Scanner() {
-  const webcamRef    = useRef(null);
-  const canvasRef    = useRef(null);
-  const fpsRef       = useRef({ n: 0, t: Date.now() });
-  const stableDets   = useRef([]);
-  const animFrameRef = useRef(null);
+  const webcamRef      = useRef(null);
+  const canvasRef      = useRef(null);
+  const fpsRef         = useRef({ n: 0, t: Date.now() });
+  const stableDets     = useRef([]);
+  const animFrameRef   = useRef(null);
+  // THE GUARD — prevents concurrent in-flight requests
+  const scanInProgress = useRef(false);
 
   const [mode,       setMode]       = useState('entry');
   const [paused,     setPaused]     = useState(false);
@@ -35,6 +40,7 @@ export default function Scanner() {
   const [log,        setLog]        = useState([]);
   const [fps,        setFps]        = useState(0);
   const [active,     setActive]     = useState(false);
+  const [latency,    setLatency]    = useState(null);  // shows actual HF round-trip ms
 
   // ── Canvas bbox drawing ───────────────────────────────────────────────────
   const drawBoxes = useCallback((dets, cW, cH) => {
@@ -60,12 +66,10 @@ export default function Scanner() {
       const isKnown = d.name !== 'Unknown';
       const color   = isKnown ? '#22c55e' : '#ef4444';
 
-      // Bounding box
       ctx.strokeStyle = color;
       ctx.lineWidth   = 2;
       ctx.strokeRect(rx1, ry1, rw, rh);
 
-      // Corner accents
       const cLen = Math.min(rw, rh) * 0.18;
       ctx.strokeStyle = color;
       ctx.lineWidth   = 3;
@@ -74,7 +78,6 @@ export default function Scanner() {
       ctx.beginPath(); ctx.moveTo(rx1, ry1 + rh - cLen); ctx.lineTo(rx1, ry1 + rh); ctx.lineTo(rx1 + cLen, ry1 + rh); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(rx1 + rw - cLen, ry1 + rh); ctx.lineTo(rx1 + rw, ry1 + rh); ctx.lineTo(rx1 + rw, ry1 + rh - cLen); ctx.stroke();
 
-      // Name label
       ctx.font = 'bold 11px Inter, sans-serif';
       const label = isKnown
         ? `${d.name}  ${d.confidence}%${d.entry_count > 1 ? `  #${d.entry_count}` : ''}`
@@ -87,7 +90,6 @@ export default function Scanner() {
       ctx.fillStyle = '#fff';
       ctx.fillText(label, rx1 + 5, ry1 - 7);
 
-      // Event badge
       if (d.event_type && d.logged) {
         const tag = d.event_type.toUpperCase();
         const tw2 = ctx.measureText(tag).width;
@@ -114,11 +116,17 @@ export default function Scanner() {
     return () => { if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current); };
   }, [drawLoop]);
 
-  // ── Scan loop ─────────────────────────────────────────────────────────────
+  // ── Scan loop — with in-flight guard ─────────────────────────────────────
   const scan = useCallback(async () => {
-    if (paused || !webcamRef.current) return;
+    // Skip this tick if previous request is still waiting for HF response.
+    // This is the ENTIRE fix for 499s and "stops with 2 devices".
+    if (paused || !webcamRef.current || scanInProgress.current) return;
+
     const src = webcamRef.current.getScreenshot({ width: 320, height: 240 });
     if (!src) return;
+
+    scanInProgress.current = true;
+    const t0 = Date.now();
 
     try {
       const blob = await (await fetch(src)).blob();
@@ -128,6 +136,9 @@ export default function Scanner() {
 
       const res  = await api.scan(form);
       const dets = res.detections || [];
+
+      // Show actual round-trip latency in the UI
+      setLatency(Date.now() - t0);
 
       stableDets.current = dets;
       setDetections(dets);
@@ -147,7 +158,12 @@ export default function Scanner() {
         setFps(Math.round(fpsRef.current.n / ((now - fpsRef.current.t) / 1000)));
         fpsRef.current = { n: 0, t: now };
       }
-    } catch {}
+    } catch {
+      // On error, stableDets stays as-is (sticky) — boxes don't blink
+    } finally {
+      // Always release the lock, even on error
+      scanInProgress.current = false;
+    }
   }, [paused, mode]);
 
   useEffect(() => {
@@ -160,7 +176,16 @@ export default function Scanner() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Live Scanner</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Continuous detection · {fps > 0 ? `${fps} fps` : 'starting…'}
+          Continuous detection
+          {fps > 0 && ` · ${fps} fps`}
+          {latency != null && (
+            <span className={cn(
+              'ml-2 font-mono',
+              latency < 800 ? 'text-green-500' : latency < 1500 ? 'text-yellow-500' : 'text-red-500'
+            )}>
+              {latency}ms
+            </span>
+          )}
         </p>
       </div>
 
@@ -217,7 +242,7 @@ export default function Scanner() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => { setLog([]); setDetections([]); stableDets.current = []; }}
+          onClick={() => { setLog([]); setDetections([]); stableDets.current = []; setLatency(null); }}
         >
           <Trash2 size={13} /> Clear
         </Button>
@@ -281,21 +306,18 @@ export default function Scanner() {
                 )}>
                   {d.name !== 'Unknown' ? d.name[0].toUpperCase() : '?'}
                 </div>
-
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{d.name}</p>
                   <p className="text-[11px] text-muted-foreground">
                     {[d.student_id, d.department].filter(Boolean).join(' · ')}
                   </p>
                 </div>
-
                 {d.event_type === 'entry' && d.entry_count > 0 && (
                   <div className="flex items-center gap-0.5 text-[10px] text-muted-foreground flex-shrink-0">
                     <Hash size={9} />
                     <span className="font-mono">{ordinal(d.entry_count)}</span>
                   </div>
                 )}
-
                 <div className="flex flex-col items-end gap-1 flex-shrink-0">
                   <Badge variant={d.event_type === 'entry' ? 'green' : 'yellow'}>
                     {d.event_type}
