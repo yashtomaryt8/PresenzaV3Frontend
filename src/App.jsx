@@ -32,7 +32,6 @@ export default function App() {
     return () => clearInterval(t);
   }, [ping]);
 
-  // ⌘K shortcut
   useEffect(() => {
     const h = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -40,6 +39,13 @@ export default function App() {
         setSearchOpen(true);
       }
     };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
+
+  // Close sidebar on Escape key
+  useEffect(() => {
+    const h = (e) => { if (e.key === 'Escape') setSidebarOpen(false); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, []);
@@ -60,22 +66,35 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      {/* Desktop sidebar */}
-      <div className="hidden lg:flex">
+
+      {/* ── Desktop sidebar — outer div owns the sidebar CSS class ── */}
+      {/* The Sidebar component's inner <aside> must NOT have .sidebar class */}
+      <div className="sidebar hidden lg:flex">
         <Sidebar tab={tab} setTab={handleTabChange} health={health} onSearch={() => setSearchOpen(true)} />
       </div>
 
-      {/* Mobile sidebar */}
+      {/* ── Mobile sidebar overlay + drawer ── */}
       {sidebarOpen && (
         <>
-          <div className="sidebar-mobile-overlay lg:hidden" onClick={() => setSidebarOpen(false)} />
+          {/* Dim overlay — clicking it closes the sidebar */}
+          <div
+            className="sidebar-mobile-overlay lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+          {/* Sidebar drawer — outer div owns .sidebar.open, inner Sidebar has no .sidebar class */}
           <div className="sidebar open lg:hidden">
-            <Sidebar tab={tab} setTab={handleTabChange} health={health} onSearch={() => { setSidebarOpen(false); setSearchOpen(true); }} />
+            <Sidebar
+              tab={tab}
+              setTab={handleTabChange}
+              health={health}
+              onSearch={() => { setSidebarOpen(false); setSearchOpen(true); }}
+              onClose={() => setSidebarOpen(false)}
+            />
           </div>
         </>
       )}
 
-      {/* Main content area */}
+      {/* ── Main content ── */}
       <div className="main-area">
         <Header
           tab={tab}
@@ -90,10 +109,10 @@ export default function App() {
         </div>
       </div>
 
-      {/* Mobile Dynamic Island nav */}
+      {/* ── Mobile bottom nav ── */}
       <DynamicIslandNav tab={tab} setTab={handleTabChange} />
 
-      {/* Global search */}
+      {/* ── Global search ── */}
       {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
     </div>
   );
